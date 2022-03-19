@@ -27,18 +27,21 @@ class Statistics:
                 if "login attempt" in line:
                     login, passwd = line.split()[-2].split("'")[1], line.split()[-2].split("'")[-2] 
                     self.credentials.append((login, passwd))
-    
-    def getCountryNames(self):
 
+    def getCountryNames(self):
+        cache = {}
+        all_ip = len([user.ip for _, user in self.data.items()])
         for _, session in self.data.items():
-            xml_stream = sp.Popen(['curl', 'https://freegeoip.app/xml/{}'.format(session.ip)], stdout=sp.PIPE, stderr=sp.PIPE)
-            stdout, _ = xml_stream.communicate()
-            #print(str(stdout).split("<"))
-            #print(f'{str(stdout.split()[3]) = }')
-            #print(str(stdout).split("<")[6].split(">")[1])
-            reg_str = "<CountryName>(.*?)</CountryName>"
-            print(re.findall(reg_str, stdout.decode("UTF-8")), stdout.decode("UTF-8"))
-            self.country_names.append(re.findall(reg_str, stdout.decode("UTF-8")))
+            print("Cached IPs: {} of {}".format(len(cache.items()), all_ip), end="\r")
+            if session.ip in cache.keys():    
+                self.country_names.append(cache[session.ip])
+            else:
+                xml_stream = sp.Popen(['geoiplookup', '{}'.format(session.ip)], stdout=sp.PIPE, stderr=sp.PIPE)
+                stdout, _ = xml_stream.communicate()
+                ip_country_name = stdout.decode("UTF-8").split(":")[-1].split(",", maxsplit=1)[-1].strip()
+                cache[session.ip] = ip_country_name
+                self.country_names.append(cache[session.ip])
+        #print(f'{len(cache.items()) = }')
 
     def portRanking(self):
         return list(Counter([user.port for _, user in self.data.items()]).items())
@@ -56,7 +59,7 @@ class Statistics:
         return list(Counter(self.credentials).items())
 
     def countryRanking(self):
-        pass
+        return list(Counter(self.country_names).items())
 
     def display(self, type: str, top=10):
         if type == "port":
@@ -95,7 +98,14 @@ class Statistics:
             fig.barh(data, labels, force_ascii=True)
             fig.show()
         elif type == "geoip":
-            pprint(self.getCountryNames())
+            info("Country Name Ranking")
+            fig = tpl.figure()
+            self.getCountryNames()
+            ranking = sorted(self.countryRanking(), key=lambda country: country[1], reverse=True)[:top]
+            #pprint(self.country_names)
+            labels, data = [country[0] for country in ranking], [country[1] for country in ranking]
+            fig.barh(data, labels, force_ascii=True)
+            fig.show()
         else:
             error("Not supported type! ({})".format(type))
 
@@ -136,8 +146,6 @@ for id, session in sessions.items():
     print(id, end=": ")
     session.display()
 '''
-print("All sessions:", len(sessions))
-
 
 stats = Statistics(sessions)
 stats.display("port")
@@ -146,3 +154,5 @@ stats.display("creds")
 stats.display("passwd")
 stats.display("login")
 stats.display("geoip")
+
+print("All sessions:", len(sessions))
